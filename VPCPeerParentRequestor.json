@@ -1,0 +1,54 @@
+[
+    {
+      "ParameterKey": "AccountIDMetaServices",
+      "ParameterValue": "123456789012"
+    },
+    {
+      "ParameterKey": "VPCIdMetaServices",
+      "ParameterValue": "vpc-00000000a0b000c0d"
+    },
+    {
+      "ParameterKey": "AccountIDDev",
+      "ParameterValue": "234567890123"
+    },
+    {
+      "ParameterKey": "VPCIdDev",
+      "ParameterValue": "vpc-00a00b0c00000de00"
+    },
+    {
+      "ParameterKey": "PeerToDev",
+      "ParameterValue": "true"
+    },
+    {
+      "ParameterKey": "AccountIDNonProd",
+      "ParameterValue": "345678901234"
+    },
+    {
+      "ParameterKey": "VPCIdNonProd",
+      "ParameterValue": ""
+    },
+    {
+      "ParameterKey": "PeerToNonProd",
+      "ParameterValue": "false"
+    },
+    {
+      "ParameterKey": "AccountIDProd",
+      "ParameterValue": "456789012345"
+    },
+    {
+      "ParameterKey": "VPCIdProd",
+      "ParameterValue": ""
+    },
+    {
+      "ParameterKey": "PeerToProd",
+      "ParameterValue": "false"
+    }
+  ]
+
+
+
+
+
+
+
+

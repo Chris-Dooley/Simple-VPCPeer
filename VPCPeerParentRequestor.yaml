@@ -1,0 +1,281 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: This template create a lambda function and use it to generate a cross account VPC Peer request, the destination account must have created the role to authorize the VPC Peer request
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label: 
+          default: "Parent Account: MetaServices"
+        Parameters:
+          - AccountIDMetaServices
+          - VPCIdMetaServices
+      -
+        Label:
+          default: "Peer Account: Development"
+        Parameters:
+          - PeerToDev
+          - AccountIDDev
+          - VPCIdDev
+      -
+        Label:
+          default: "Peer Account: NonProd"
+        Parameters:
+          - PeerToNonProd
+          - AccountIDNonProd
+          - VPCIdNonProd
+      -
+        Label:
+          default: "Peer Account: Production"
+        Parameters:
+          - PeerToProd
+          - AccountIDProd
+          - VPCIdProd
+    ParameterLabels:
+      AccountIDMetaServices:
+        default: "Account Number"
+      VPCIdMetaServices:
+        default: "VPC ID"
+      PeerToDev:
+        default: "Peer?"
+      AccountIDDev:
+        default: "Account Number"
+      VPCIdDev:
+        default: "VPC ID"
+      PeerToNonProd:
+        default: "Peer?"
+      AccountIDNonProd:
+        default: "Account Number"
+      VPCIdNonProd:
+        default: "VPC ID"
+      PeerToProd:
+        default: "Peer?"
+      AccountIDProd:
+        default: "Account Number"
+      VPCIdProd:
+        default: "VPC ID"
+
+Parameters:
+  AccountIDMetaServices:
+    Description: Account ID of the MetaServices account
+    Type: String
+  VPCIdMetaServices:
+    Description: Local VPC ID
+    Type: String
+  AccountIDDev:
+    Description: Account ID of the Dev account
+    Type: String
+  VPCIdDev:
+    Description: VPC ID in the Dev account
+    Type: String
+  PeerToDev:
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'false'
+    Description: Peer to Dev
+    Type: String
+  AccountIDNonProd:
+    Description: Account ID of the NonProd account
+    Type: String
+  VPCIdNonProd:
+    Description: VPC ID in the NonProd account
+    Type: String
+  PeerToNonProd:
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'false'
+    Description: Peer to NonProd
+    Type: String
+  AccountIDProd:
+    Description: Account ID of the Prod account
+    Type: String
+  VPCIdProd:
+    Description: VPC ID in the Prod account
+    Type: String
+  PeerToProd:
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'false'
+    Description: Peer to Prod
+    Type: String
+
+
+Conditions:
+  PeerDev: !Equals [ !Ref PeerToDev, true ]
+  PeerNonProd: !Equals  [ !Ref PeerToNonProd, true ]
+  PeerProd: !Equals [ !Ref PeerToProd, true ]
+
+
+Resources:
+  CreateDevVPCPeer:
+    Condition: PeerDev
+    DependsOn: LambdaVPCPeer
+    Type: Custom::VPCPeer
+    Version: '1.0'
+    Properties:
+      ServiceToken: !GetAtt LambdaVPCPeer.Arn
+      LocalVPC: !Ref VPCIdMetaServices
+      PeerVPC: !Ref VPCIdDev
+      PeerVPCOwner: !Ref AccountIDDev
+      PeerRoleName: !Join
+        - ''
+        - - !Ref "AWS::Region"
+          - '-VPCPeerAuthorizerRole-'
+          - !Ref AccountIDMetaServices
+  CreateNonProdVPCPeer:
+    Condition: PeerNonProd
+    DependsOn: LambdaVPCPeer
+    Type: Custom::VPCPeer
+    Version: '1.0'
+    Properties:
+      ServiceToken: !GetAtt LambdaVPCPeer.Arn
+      LocalVPC: !Ref VPCIdMetaServices
+      PeerVPC: !Ref VPCIdNonProd
+      PeerVPCOwner: !Ref AccountIDNonProd
+      PeerRoleName: !Join
+        - ''
+        - - !Ref "AWS::Region"
+          - '-VPCPeerAuthorizerRole-'
+          - !Ref AccountIDMetaServices
+  CreateProdVPCPeer:
+    Condition: PeerProd
+    DependsOn: LambdaVPCPeer
+    Type: Custom::VPCPeer
+    Version: '1.0'
+    Properties:
+      ServiceToken: !GetAtt LambdaVPCPeer.Arn
+      LocalVPC: !Ref VPCIdMetaServices
+      PeerVPC: !Ref VPCIdProd
+      PeerVPCOwner: !Ref AccountIDProd
+      PeerRoleName: !Join
+        - ''
+        - - !Ref "AWS::Region"
+          - '-VPCPeerAuthorizerRole-'
+          - !Ref AccountIDMetaServices
+  LambdaVPCPeer:
+    DependsOn:
+      - LambdaExecutionRole
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.vpc_request
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import cfnresponse
+          import boto3
+          import logging
+          import time
+          logger = logging.getLogger()
+          logger.setLevel(logging.DEBUG)
+          def vpc_request(event, context):
+            ec2 = boto3.resource('ec2')
+            PayLoad = {}
+            if event['RequestType'] == 'Delete':
+              PayLoad['VPCRequestId'] = event['PhysicalResourceId']
+              PayLoad['SubStatus'] = 'DELETED'
+              logging.info('Delete Request')
+              vpcrm = ec2.VpcPeeringConnection(event['PhysicalResourceId'])
+              try:
+                vpcrm.delete()
+              except Exception as e:
+                logging.info('Cant delete vpc peer')
+              time.sleep(1)
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, PayLoad,event['PhysicalResourceId'])
+              return PayLoad
+            logging.info('Creating VPC Request')
+            try:
+              logging.debug(event)
+              logging.info(event['ResourceProperties']['PeerVPC'])
+              if ('LocalVPC' not in event['ResourceProperties'] or
+                'PeerVPC' not in event['ResourceProperties'] or
+                'PeerVPCOwner' not in event['ResourceProperties']):
+                logging.info('No ResourceProperties Internal')
+                cfnresponse.send(event, context, cfnresponse.FAILED, PayLoad)
+                return
+              LocalVPC = event['ResourceProperties']['LocalVPC']
+              PeerVPC = event['ResourceProperties']['PeerVPC']
+              PeerVPCOwner = event['ResourceProperties']['PeerVPCOwner']
+              vpcrequest = ec2.create_vpc_peering_connection(VpcId=LocalVPC,
+                PeerVpcId=PeerVPC,
+                PeerOwnerId=PeerVPCOwner)
+              PayLoad['VPCRequestId'] = vpcrequest.id
+            except Exception as e:
+              logging.error('VPCPeer Request Failed (%s)', e)
+              cfnresponse.send(event, context, cfnresponse.FAILED, PayLoad)
+              return False
+            logging.info('Switching to the peer account to authorize VPCPeer %s' % vpcrequest.id)
+            try:
+              sts_client = boto3.client('sts')
+              LocalRoleArn = ("arn:aws:iam::%s:role/%s" %
+                (event['ResourceProperties']['PeerVPCOwner'],
+                  event['ResourceProperties']['PeerRoleName']))
+              assumedRoleObject = sts_client.assume_role(
+                RoleArn=LocalRoleArn,
+                RoleSessionName="RoleToAuthorizeVPCPeer")
+              credentials = assumedRoleObject['Credentials']
+            except Exception as  e:
+              logging.error('STS Failed (%s)', e)
+              cfnresponse.send(event, context, cfnresponse.FAILED, PayLoad)
+              return False
+            logging.info('Authorizing VPCPeer %s' % vpcrequest.id)
+            try:
+              ec2_other = boto3.resource('ec2',
+                aws_access_key_id = credentials['AccessKeyId'],
+                aws_secret_access_key = credentials['SecretAccessKey'],
+                aws_session_token = credentials['SessionToken'])
+              vpcauth = ec2_other.VpcPeeringConnection(vpcrequest.id)
+              vpcauth.accept()
+            except Exception as e:
+              logging.error('VPCPeer Auth Failed (%s)', e)
+              cfnresponse.send(event, context, cfnresponse.FAILED,PayLoad)
+              return False
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, PayLoad, vpcrequest.id)
+            return PayLoad
+      Runtime: python2.7
+      Timeout: '10'
+  
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+              - Effect: Allow
+                Action:
+                  - ec2:CreateVpcPeeringConnection
+                  - ec2:DeleteVpcPeeringConnection
+                  - sts:AssumeRole
+                Resource: "*"
+Outputs:
+  VPCPeerIdDev:
+    Description: VPC Peer ID for Dev account peering
+    Value: !GetAtt CreateDevVPCPeer.VPCRequestId
+    Condition: PeerDev
+  VPCPeerIdNonProd:
+    Description: VPC Peer ID for NonProd account peering
+    Value: !GetAtt CreateNonProdVPCPeer.VPCRequestId
+    Condition: PeerNonProd
+  VPCPeerIdProd:
+    Description: VPC Peer ID for Prod account peering
+    Value: !GetAtt CreateProdVPCPeer.VPCRequestId
+    Condition: PeerProd
